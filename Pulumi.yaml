@@ -1,0 +1,3 @@
+name: iac-module-eks
+runtime: nodejs
+description: A package to deploy EKS
