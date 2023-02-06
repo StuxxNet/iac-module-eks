@@ -10,11 +10,6 @@ export interface eksClusterOptions {
     publicSubnetIds?: string[];
 }
 
-interface eksNodeRoleData {
-    nodeRole: aws.iam.Role,
-    nodeInstanceProfile: aws.iam.InstanceProfile
-}
-
 export class eksCluster extends pulumi.ComponentResource {
 
     private eksCluster: eks.Cluster;
@@ -25,21 +20,30 @@ export class eksCluster extends pulumi.ComponentResource {
 
         this.eksClusterOptions = eksClusterOptions;
 
-        const controlPlaneRole = this.createControlPlaneRole();
-        const nodeRoleData = this.createNodeRoleData();
+        // Getting IAM for the cluster done
+        const controlPlaneRole: aws.iam.Role = this.createControlPlaneRole();
+        const nodeRole = this.createNodeRole();
 
         // Creating the cluster control plane
         this.eksCluster = new eks.Cluster("eksCluster", {
             // Global configurations
             name: this.eksClusterOptions.name,
             version: this.eksClusterOptions.version,
-            instanceRoles: [controlPlaneRole, nodeRoleData.nodeRole],
+
+            // ControlPlane IAM definition
+            serviceRole: controlPlaneRole,
+            instanceRole: nodeRole,
+
+            // Networking
+            vpcId: this.eksClusterOptions.vpcId,
+            privateSubnetIds: this.eksClusterOptions.privateSubnetsIds ? this.eksClusterOptions.privateSubnetsIds : [],
+            publicSubnetIds: this.eksClusterOptions.publicSubnetIds ? this.eksClusterOptions.publicSubnetIds: [],
+
+            // Default configuration:
+            useDefaultVpcCni: true,
 
             // Node configuration
             nodeGroupOptions: {
-                // Instance profile
-                instanceProfile: nodeRoleData.nodeInstanceProfile,
-
                 // Default Node-Pool sizing
                 desiredCapacity: 6,
                 maxSize: 8,
@@ -53,13 +57,14 @@ export class eksCluster extends pulumi.ComponentResource {
                 nodeAssociatePublicIpAddress: false,
             },
 
-            // Networking
-            vpcId: this.eksClusterOptions.vpcId,
-            privateSubnetIds: this.eksClusterOptions.privateSubnetsIds ? this.eksClusterOptions.privateSubnetsIds : [],
-            publicSubnetIds: this.eksClusterOptions.publicSubnetIds ? this.eksClusterOptions.publicSubnetIds: [],
-
-            // Default configuration:
-            useDefaultVpcCni: true,
+            // Logging configuration for the cluster
+            enabledClusterLogTypes: [
+                "api",
+                "audit",
+                "authenticator",
+                "controllerManager",
+                "scheduler"
+            ],
 
             // Role Mapping
             roleMappings: [{
@@ -76,6 +81,7 @@ export class eksCluster extends pulumi.ComponentResource {
         }, { parent: this });
     }
 
+    // Creates the role for the control plane
     private createControlPlaneRole(): aws.iam.Role {
         // Creating the control plane role
         const controlPlaneRole = new aws.iam.Role("controlPlaneRole", {
@@ -96,7 +102,7 @@ export class eksCluster extends pulumi.ComponentResource {
                 "usage": "eks-control-plane"
             }
         }, {
-            parent: this
+            parent: this.eksCluster
         });
 
         // Attaching roles to the control plane role
@@ -109,7 +115,8 @@ export class eksCluster extends pulumi.ComponentResource {
         return controlPlaneRole;
     }
 
-    private createNodeRoleData(): eksNodeRoleData {
+    // Created the nodes for the node groups
+    private createNodeRole(): aws.iam.Role {
         const nodePolicies: string[] = [
             "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
             "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
@@ -136,7 +143,7 @@ export class eksCluster extends pulumi.ComponentResource {
                 "usage": "eks-control-plane"
             }
         }, {
-            parent: this
+            parent: this.eksCluster
         })
 
         // Attaching policies to the node roles
@@ -147,14 +154,7 @@ export class eksCluster extends pulumi.ComponentResource {
             }, { parent: nodeRole });
         }
 
-        // Creating the node instance profile
-        const nodeInstanceProfile = new aws.iam.InstanceProfile("nodeInstanceProfile", {role: nodeRole.name}, { parent: nodeRole });
-        
-        // Returning object with necessary data
-        return {
-            nodeRole: nodeRole,
-            nodeInstanceProfile: nodeInstanceProfile
-        }
+        return nodeRole
     }
 
 }
