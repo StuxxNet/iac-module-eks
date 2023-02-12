@@ -2,10 +2,10 @@ import {eksCluster, eksClusterOptions} from "./eks"
 
 const kubernetesOptions: eksClusterOptions = {
     name: "eks-cluster",
-    version: "1.23",
-    vpcId: "vpc-0d4cd3e882b183157",
-    privateSubnetsIds: ["subnet-0091994d32ebbdf93", "subnet-0afe5e4d35482ae75", "subnet-02c31f28851cd474a"],
-    publicSubnetIds: ["subnet-0fc39c184e042486a", "subnet-0aa8a3aebbe0f82a7", "subnet-026e663b20e7d0f7d"]
+    version: "1.21",
+    vpcId: "vpc-03f526928a25165bd",
+    privateSubnetsIds: ["subnet-011cc70e47f085d6c", "subnet-0c08b0acd2f48b3e2", "subnet-04693833acb34c936"],
+    publicSubnetIds: ["subnet-0a3cb7db109daefa6", "subnet-01bca8d9439ab584d", "subnet-0293e701f8fe2f5b2"]
 }
 
 const kubernetes: eksCluster = new eksCluster("eksCluster", kubernetesOptions);

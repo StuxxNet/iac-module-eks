@@ -8,6 +8,7 @@ export interface eksClusterOptions {
     vpcId?: string;
     privateSubnetsIds?: string[];
     publicSubnetIds?: string[];
+    deployDefaultNodeGroup?: boolean;
 }
 
 export class eksCluster extends pulumi.ComponentResource {
@@ -18,14 +19,15 @@ export class eksCluster extends pulumi.ComponentResource {
     constructor(name: string, eksClusterOptions: eksClusterOptions, opts?: pulumi.ResourceOptions){
         super("modules:eksCluster", name, opts);
 
+        // Getting the values from the constructor parameter
         this.eksClusterOptions = eksClusterOptions;
 
         // Getting IAM for the cluster done
         const controlPlaneRole: aws.iam.Role = this.createControlPlaneRole();
         const nodeRole = this.createNodeRole();
 
-        // Creating the cluster control plane
-        this.eksCluster = new eks.Cluster("eksCluster", {
+        // Setting the default ControlPlane values
+        let eksClusterValues = {
             // Global configurations
             name: this.eksClusterOptions.name,
             version: this.eksClusterOptions.version,
@@ -41,21 +43,6 @@ export class eksCluster extends pulumi.ComponentResource {
 
             // Default configuration:
             useDefaultVpcCni: true,
-
-            // Node configuration
-            nodeGroupOptions: {
-                // Default Node-Pool sizing
-                desiredCapacity: 6,
-                maxSize: 8,
-                minSize: 4,
-
-                // Compute configuration
-                instanceType: "t2.medium",
-                nodeRootVolumeSize: 20,
-
-                // No public IP
-                nodeAssociatePublicIpAddress: false,
-            },
 
             // Logging configuration for the cluster
             enabledClusterLogTypes: [
@@ -78,7 +65,67 @@ export class eksCluster extends pulumi.ComponentResource {
                 "created-by": "pulumi",
                 "usage": "eks-control-plane"
             },
-        }, { parent: this });
+        };
+
+        // Adding defaultNodeGroups
+        if (this.eksClusterOptions.deployDefaultNodeGroup) {
+            eksClusterValues = Object.assign({}, eksClusterValues, {
+            // Node configuration
+                nodeGroupOptions: {
+                    // Default Node-Pool sizing
+                    desiredCapacity: 6,
+                    maxSize: 8,
+                    minSize: 4,
+
+                    // Compute configuration
+                    instanceType: "t2.medium",
+                    nodeRootVolumeSize: 20,
+
+                    // No public IP
+                    nodeAssociatePublicIpAddress: false,
+                }
+            });
+        } else {
+            eksClusterValues = Object.assign({}, eksClusterValues, {
+                skipDefaultNodeGroup: true
+            });
+        }
+
+        // Creating the cluster control plane
+        this.eksCluster = new eks.Cluster("eksCluster", eksClusterValues, { parent: this });
+
+        // Creating the managedNodeGroup
+        this.createManagedNodeGroups(nodeRole.arn);
+    }
+
+    // Create kubernetes Managed Nodegroups
+    private createManagedNodeGroups(nodeRoleArn: pulumi.Output<string> ) {
+        const managedNodeGroup = new eks.ManagedNodeGroup("eksManageNodeGroup", {
+            
+            // General information about the nodeType
+            cluster: this.eksCluster,
+            version: this.eksClusterOptions.version,
+            nodeGroupName: "eksCluster-NodeGroup",
+            
+            // Hardware definition and availability
+            capacityType: "ON_DEMAND",
+            instanceTypes: [ "t3.medium", "t2.medium" ],
+            diskSize: 10,
+
+            // Scalability
+            scalingConfig: {
+                desiredSize: 1,
+                minSize: 1,
+                maxSize: 10
+            },
+
+            // Network definiton
+            subnetIds: this.eksClusterOptions.privateSubnetsIds,
+
+            // IAM Definition
+            nodeRoleArn: nodeRoleArn,
+
+        }, { parent: this.eksCluster} )
     }
 
     // Creates the role for the control plane
